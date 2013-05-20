@@ -1,0 +1,4 @@
+{"cmd" : ["python", "print_gcode.py"],
+ "order" : 50,
+ "input" : "application/vnd.sprinter.gcode",
+ "output" : 0}

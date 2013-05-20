@@ -1,0 +1,4 @@
+{"cmd": ["python", "wrapper.py"],
+ "order": 50,
+"input": ["model/stl+binary", "model/stl+ascii", "model/obj"],
+ "output": "application/vnd.sprinter.gcode"}

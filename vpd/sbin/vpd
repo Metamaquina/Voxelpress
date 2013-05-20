@@ -1,0 +1,158 @@
+#!/usr/bin/env python
+
+# This file is part of VoxelPress.
+#
+# VoxelPress is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# VoxelPress is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with VoxelPress.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Have a nice day!
+
+
+import os
+import sys
+sys.path.insert(1, os.path.abspath(os.path.join(
+            sys.argv[0], "../../vpd/")))
+
+import glob
+import uuid
+import json
+import pickle
+import daemon
+import gobject
+import dbus, dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+
+from hw_detect import HardwareMonitor
+from printer_kind import VoxelpressPrinter, PRINTER_STATES
+
+
+
+
+class VoxelpressServer(dbus.service.Object):
+
+    def __init__(self):
+        namespace = "org.voxelpress"
+        bus_name = dbus.service.BusName(namespace, bus=dbus.SessionBus())
+        dbus.service.Object.__init__(
+            self, bus_name, "/" + namespace.replace(".", "/"))
+
+        self.devices = {} # is this still needed?
+        self.printers = {}
+
+        print "Loading saved printer configurations..."
+        # load saved printer configs
+        self.__config_path = os.path.abspath(
+            os.path.join(sys.argv[0], "../../../etc/voxelpress/printers/"))
+        found = glob.glob(os.path.join(self.__config_path, "*.json"))
+        for path in found:
+            puuid = uuid.UUID(os.path.split(path)[1][:-5])
+            print "\t* UUID:",puuid
+            self.printers[puuid] = VoxelpressPrinter(puuid)
+
+    def __get_printer(self, printer_id):
+        """Select a printer from its printer_id."""
+        uuid_ = printer_id
+        if type(uuid_) in [unicode, dbus.String, str]:
+            uuid_ = uuid.UUID(uuid_)
+        if self.printers.has_key(uuid_):
+            return self.printers[uuid_]
+        else:
+            # FIXME this should probably be an exception since the
+            # uuid should almost never be determined by user input.
+            return None
+
+    @dbus.service.method("org.voxelpress.events", in_signature='s')
+    def on_connect(self, device_info):
+        config = json.loads(device_info)
+        printer_uuid = uuid.UUID(config["uuid"])
+        usb_path = config["usb_path"]
+        if not self.devices.has_key(usb_path):
+            self.devices[usb_path] = printer_uuid
+            if not self.printers.has_key(printer_uuid):
+                self.printers[printer_uuid] = VoxelpressPrinter(printer_uuid)
+            self.printers[printer_uuid].on_connect(config)
+        else:
+            raise RuntimeError("FIXME: This should never happen.")
+            
+    @dbus.service.method("org.voxelpress.events", in_signature='s')
+    def on_disconnect(self, usb_path):
+        if self.devices.has_key(usb_path):
+            printer_uuid = self.devices[usb_path]
+            del self.devices[usb_path]
+            self.printers[printer_uuid].on_disconnect()
+
+    @dbus.service.method(
+        "org.voxelpress.util", out_signature='s', in_signature='s')
+    def get_hw_config(self, printer_id):
+        printer = self.__get_printer(printer_id)
+        return json.dumps(printer.hardware_config)
+
+    @dbus.service.method(
+        "org.voxelpress.util", out_signature='s', in_signature='s')
+    def dump_queue(self, printer_id):
+        printer = self.__get_printer(printer_id)
+        return pickle.dumps(printer.queue)
+
+    @dbus.service.method("org.voxelpress.api", out_signature='s')
+    def get_printers(self):
+        """Get a list of all known printers, connected or
+        otherwise."""
+        return json.dumps(map(str, self.printers.keys()))
+
+    @dbus.service.method(
+        "org.voxelpress.api", in_signature='s', out_signature='s')
+    def get_printer_info(self, printer_uuid):
+        """Request information about a specific printer."""
+
+        printer = self.__get_printer(printer_uuid)
+        return json.dumps({
+                "uuid" : printer_uuid,
+                "name" : printer.name,
+                "state" : printer.state,
+                })
+
+    @dbus.service.method(
+        "org.voxelpress.api", in_signature='s', out_signature='s')
+    def get_pipeline(self, json_args):
+        """Returns a possible pipeline configuration.  Should be
+        called before a print job is requested to provide default
+        settings for the printer."""
+
+        printer_uuid, path = json.loads(json_args)
+        printer = self.__get_printer(printer_uuid)
+        mime_type = "model/stl+binary" # FIXME do mimetype discovery
+        return json.dumps(printer.get_pipeline(mime_type))
+
+    @dbus.service.method(
+        "org.voxelpress.api", in_signature='s', out_signature='s')
+    def request_print(self, json_blob):
+        """Requests a print job."""
+
+        req = json.loads(json_blob)
+
+        config = req["config"]
+        environ = req["env"]
+        path = req["path"]
+
+        printer = self.__get_printer(req["uuid"])
+        return printer.request_job(path, config, environ)
+
+
+if __name__ == "__main__":
+    main_loop = gobject.MainLoop()
+    DBusGMainLoop(set_as_default=True)
+    voxelpress = VoxelpressServer()
+    hardware = HardwareMonitor()
+    main_loop.run()
+
+

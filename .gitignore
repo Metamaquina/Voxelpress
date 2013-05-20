@@ -1,0 +1,7 @@
+etc/voxelpress/printers/*.json
+settings/
+scratch/
+test_voxelpress.sh
+*.pyc
+*~
+*#

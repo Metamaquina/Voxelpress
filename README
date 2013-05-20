@@ -1,0 +1,60 @@
+
+Dependencies, as best I can recall:
+
+python-daemon
+python-gudev
+python-dbus
+
+
+
+
+System setup instructions:
+
+1) This is only tested so far with Arduino Megas + Ramps board.
+Sanguino based controllers are known to not work currently with
+Voxelpress.
+
+2) Make sure you have the ability to access usb serial ports without
+having to chmod every time you plug it in in.  In debian, this means
+adding your user to the dialout group (requires you to log out and log
+back in again).
+
+3) Make sure your printer is not currently plugged in, and don't have
+programs like pronterface open.
+
+4) Have slic3r already installed on your system.
+
+
+
+
+Installation instructions, as best I can recall:
+
+
+0) get repository
+> git clone git://github.com/Aeva/voxelpress.git
+
+1) setup the daemon
+> cd /wherever/you/saved/the/voxelpress_repository
+> cd voxelpress
+> mkdir var
+> mkdir var/voxelpress
+> mkdir etc
+> mkdir etc/voxelpress
+> ./sbin/vpd.py
+# plug your printer in now, and wait a few second until the console
+# notes that a new printer is found, then unplug your printer
+# ctrl-c
+
+> gedit ./etc/voxelpress/printers/SOME_UUID_STRING.json
+# {"filter": "org.slic3r", "config_file": [0, "file", ""]},
+# {"filter": "org.slic3r", "config_file": [0, "file", "/path/to/slic3r/profile.ini"]},
+
+# you can also rename your printer here.  Take care that the file is 
+# still parseable json when you're done.
+
+# save & close
+
+2) run the daemon and try printing
+> ./sbin/vpd.py&
+> ./bin/vpp.py list
+> ./bin/vpp.py print /path/to/stl/file.stl
